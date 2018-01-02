@@ -24,8 +24,16 @@ randomElement xs = do
   return (xs !! randomDigit)
 
 shortyGen :: IO String
-shortyGen =
-  replicateM 7 (randomElement alphaNum)
+shortyGen = replicateM 7 (randomElement alphaNum)
+
+-- Look for short string in Redis and return True if is found
+-- Also, leaving out type signature because the actual Monad type is hidden by Scotty
+--shortyExists :: R.Connection -> BC.ByteString -> Web.Scotty.Internal.Types.ActionT TL.Text IO Bool
+shortyExists rConn s = do
+  uri <- liftIO (getURI rConn s)
+  return $ case uri of
+    Right Nothing -> True
+    Left _ -> False
 
 saveURI :: R.Connection
         -> BC.ByteString
@@ -58,6 +66,9 @@ shortyAintUri uri =
             , " wasn't a url, did you forget http://?"
             ]
 
+shortyExistsText :: TL.Text
+shortyExistsText = "Sorry our server was struck by lightning. Hopefully it won't happen again if you try your luck again."
+
 shortyFound :: TL.Text -> TL.Text
 shortyFound tbs =
   TL.concat ["<a href=\"", tbs, "\">", tbs, "</a>"]
@@ -72,10 +83,14 @@ app rConn = do
     case parsedUri of
       Just _  -> do
         shawty <- liftIO shortyGen
-        let shorty = BC.pack shawty
-            uri' = encodeUtf8 (TL.toStrict uri)
-        resp <- liftIO (saveURI rConn shorty uri')
-        html (shortyCreated resp shawty)
+        check <- shortyExists rConn (BC.pack shawty)
+        case (check) of
+          True -> text shortyExistsText
+          False -> do
+            let shorty = BC.pack shawty
+                uri' = encodeUtf8 (TL.toStrict uri)
+            resp <- liftIO (saveURI rConn shorty uri')
+            html (shortyCreated resp shawty)
       Nothing -> text (shortyAintUri uri)
   get "/:short" $ do
     short <- param "short"
