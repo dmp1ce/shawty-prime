@@ -4,6 +4,7 @@ module Main where
 
 import Control.Monad (replicateM)
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Trans.Reader
 import qualified Data.ByteString.Char8 as BC
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import qualified Data.Text.Lazy as TL
@@ -62,10 +63,15 @@ shortyFound :: TL.Text -> TL.Text
 shortyFound tbs =
   TL.concat ["<a href=\"", tbs, "\">", tbs, "</a>"]
 
-app :: R.Connection
-    -> ScottyM ()
-app rConn = do
-  get "/" $ do
+-- I got some of the way but in order to complete type
+-- I needed to cheat by looking at a solution here:
+-- https://github.com/Unisay/shawty-prime/blob/58348e95581510cf4a05c1322f9962fc28c64c01/app/Main.hs
+--
+-- ReaderT can be used to produce the rConn resource
+-- for each section which a ScottyM resource is created.
+app :: ReaderT R.Connection ScottyM ()
+app = do
+  ReaderT $ \rConn -> get "/" $ do
     uri <- param "uri"
     let parsedUri :: Maybe URI
         parsedUri = parseURI (TL.unpack uri)
@@ -77,7 +83,7 @@ app rConn = do
         resp <- liftIO (saveURI rConn shorty uri')
         html (shortyCreated resp shawty)
       Nothing -> text (shortyAintUri uri)
-  get "/:short" $ do
+  ReaderT $ \rConn -> get "/:short" $ do
     short <- param "short"
     uri <- liftIO (getURI rConn short)
     case uri of
@@ -91,4 +97,5 @@ app rConn = do
 main :: IO ()
 main = do
   rConn <- R.connect R.defaultConnectInfo
-  scotty 3000 (app rConn)
+  -- Main still needs to make use of runReaderT in order to "pass" rConn to the ReaderT
+  scotty 3000 ((runReaderT app) rConn)
